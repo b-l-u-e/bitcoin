@@ -124,6 +124,18 @@ class ReceivedByTest(BitcoinTestFramework):
         # Trying to getreceivedby for an address the wallet doesn't own should return an error
         assert_raises_rpc_error(-4, "Address not found in wallet", self.nodes[0].getreceivedbyaddress, addr)
 
+        # Test multiple transactions to the same address
+        addr_multiple = self.nodes[1].getnewaddress()
+        self.nodes[0].sendtoaddress(addr_multiple, Decimal("0.1"))
+        self.nodes[0].sendtoaddress(addr_multiple, Decimal("0.2"))
+        self.sync_all()
+        self.generate(self.nodes[1], 10)
+        balance = self.nodes[1].getreceivedbyaddress(addr_multiple)
+        assert_equal(balance, Decimal("0.3"))
+
+        # Test invalid address format error
+        assert_raises_rpc_error(-5, "Invalid Bitcoin address", self.nodes[1].getreceivedbyaddress, "invalid_address")
+
         self.log.info("listreceivedbylabel + getreceivedbylabel Test")
 
         # set pre-state
@@ -176,7 +188,10 @@ class ReceivedByTest(BitcoinTestFramework):
         label = "label"
         address = self.nodes[0].getnewaddress(label)
 
-        reward = Decimal("25")
+        # Calculate expected reward based on block height (50 BTC halved every 150 blocks)
+        block_height = self.nodes[0].getblockcount()
+        halvings = block_height // 150
+        reward = Decimal("50") / (2 ** halvings)
         self.generatetoaddress(self.nodes[0], 1, address)
         hash = self.nodes[0].getbestblockhash()
 
