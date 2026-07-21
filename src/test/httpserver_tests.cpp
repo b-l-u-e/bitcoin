@@ -221,6 +221,26 @@ BOOST_AUTO_TEST_CASE(http_request_tests)
         BOOST_CHECK_EQUAL(req.m_body, R"({"method":"getblockcount","params":[],"id":1})""\n");
     }
     {
+        // HTTP/1.1 requires exactly one Host header
+        HTTPRequest req;
+        LineReader reader("GET / HTTP/1.1\r\n\r\n", MAX_HEADERS_SIZE);
+        BOOST_CHECK(req.LoadControlData(reader));
+        BOOST_CHECK_EXCEPTION(req.LoadHeaders(reader), std::runtime_error, HasReason{"Missing Host header"});
+    }
+    {
+        HTTPRequest req;
+        LineReader reader("GET / HTTP/1.1\r\nHost: localhost\r\nhOsT: example.com\r\n\r\n", MAX_HEADERS_SIZE);
+        BOOST_CHECK(req.LoadControlData(reader));
+        BOOST_CHECK_EXCEPTION(req.LoadHeaders(reader), std::runtime_error, HasReason{"Multiple Host headers"});
+    }
+    {
+        // Host is optional in HTTP/1.0
+        HTTPRequest req;
+        LineReader reader("GET / HTTP/1.0\r\n\r\n", MAX_HEADERS_SIZE);
+        BOOST_CHECK(req.LoadControlData(reader));
+        BOOST_CHECK(req.LoadHeaders(reader));
+    }
+    {
         // Malformed: no spaces between data
         HTTPRequest req;
         LineReader reader("GET/HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n", MAX_HEADERS_SIZE);

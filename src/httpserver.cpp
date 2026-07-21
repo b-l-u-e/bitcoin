@@ -295,6 +295,7 @@ void HTTPHeaders::RemoveAll(std::string_view key)
         return CaseInsensitiveEqual(key, pair.first);
     });
     m_headers.erase(moved.begin(), moved.end());
+    if (CaseInsensitiveEqual(key, "Host")) m_has_host = false;
 }
 
 bool HTTPHeaders::Read(util::LineReader& reader)
@@ -334,6 +335,13 @@ bool HTTPHeaders::Read(util::LineReader& reader)
         // which consist of "tokens": https://httpwg.org/specs/rfc9110.html#rfc.section.5.6.2
         // that can not be empty.
         if (key.empty()) throw std::runtime_error("Empty HTTP header name");
+
+        // HTTP/1.1 requests must not contain more than one Host header.
+        // https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2
+        if (CaseInsensitiveEqual(key, "Host")) {
+            if (m_has_host) throw std::runtime_error("Multiple Host headers");
+            m_has_host = true;
+        }
 
         Write(std::string(key), std::move(value));
     }
@@ -414,7 +422,15 @@ bool HTTPRequest::LoadControlData(LineReader& reader)
 
 bool HTTPRequest::LoadHeaders(LineReader& reader)
 {
-    return m_headers.Read(reader);
+    if (!m_headers.Read(reader)) return false;
+
+    // HTTP/1.1 requires a Host header; HTTP/1.0 does not.
+    // https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2
+    if (!m_headers.HasHost() && m_version.major == 1 && m_version.minor >= 1) {
+        throw std::runtime_error("Missing Host header");
+    }
+
+    return true;
 }
 
 bool HTTPRequest::LoadBody(LineReader& reader)

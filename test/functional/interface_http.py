@@ -75,6 +75,7 @@ class BitcoinHTTPConnection:
     def post_raw(self, path, data):
         data_bytes = data.encode("utf-8")
         req = f"POST {path} HTTP/1.1\r\n"
+        req += f"Host: {self.url.hostname}\r\n"
         req += f'Authorization: Basic {str_to_b64str(self.authpair)}\r\n'
         req += f'Content-Length: {len(data_bytes)}\r\n\r\n'
         self.send_raw(req.encode("ascii") + data_bytes)
@@ -135,6 +136,7 @@ class HTTPBasicsTest (BitcoinTestFramework):
         self.check_duplicate_content_length()
         self.check_null_byte_in_uri()
         self.check_invalid_http_version()
+        self.check_host_header()
         self.check_whitespace_in_headers()
 
 
@@ -542,6 +544,19 @@ class HTTPBasicsTest (BitcoinTestFramework):
             b"GET / HTTP/9.9\r\nHost: localhost\r\n\r\n",         # far-future version
             b"GET / HTTP/INVALID\r\nHost: localhost\r\n\r\n",     # non-numeric version
             b"GET / NOTHTTP/1.1\r\nHost: localhost\r\n\r\n",      # wrong protocol name
+        ]
+        for raw in cases:
+            conn = BitcoinHTTPConnection(self.node)
+            conn.send_raw(raw)
+            response = conn.recv_raw().decode()
+            assert response.startswith("HTTP/1.1 400")
+
+
+    def check_host_header(self):
+        self.log.info("Check that HTTP/1.1 requests have exactly one Host header")
+        cases = [
+            b"POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n",
+            b"POST / HTTP/1.1\r\nHost: localhost\r\nhOsT: example.com\r\nContent-Length: 0\r\n\r\n",
         ]
         for raw in cases:
             conn = BitcoinHTTPConnection(self.node)

@@ -113,6 +113,8 @@ public:
      */
     bool Read(util::LineReader& reader);
     std::string Stringify() const;
+    /** True if a Host header was seen while reading request headers. */
+    bool HasHost() const { return m_has_host; }
 
 private:
     /**
@@ -120,6 +122,7 @@ private:
      * https://httpwg.org/specs/rfc9110.html#rfc.section.5.2
      */
     std::vector<std::pair<std::string, std::string>> m_headers;
+    bool m_has_host{false};
 };
 
 struct HTTPVersion {
