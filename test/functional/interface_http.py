@@ -463,22 +463,11 @@ class HTTPBasicsTest (BitcoinTestFramework):
 
 
     def check_request_smuggling_cl_te(self):
-        self.log.info("Check request smuggling is not possible")
-        # https://www.rfc-editor.org/rfc/rfc7230#section-3.3.3
-        # Transfer-Encoding takes precedence over Content-Length.
-        # Sending both creates a smuggling vector: a front-end proxy that
-        # uses Content-Length while the back-end uses Transfer-Encoding lets an
-        # attacker prepend arbitrary bytes to the next victim's request.
-
-        # The real JSON-RPC body sent as a single chunk.
+        self.log.info("Check that Transfer-Encoding with Content-Length is rejected")
+        # Transfer-Encoding and Content-Length must not both be present
+        # https://www.rfc-editor.org/rfc/rfc9112.html#section-6.1
         body = b'{"method":"getblockcount"}'
-        # Content-Length is set to the length of just the chunk-size line
-        # ("1a\r\n" = 4 bytes), not the full chunked body — the ambiguity that
-        # smuggling exploits. A server using Transfer-Encoding reads the complete
-        # chunk and responds with the block count; a server confused by the
-        # mismatch may stall, close the connection, or return an error.
         chunk_size_line = f"{len(body):x}\r\n".encode("ascii")
-        # Signals end of body
         empty_chunk = b'\r\n0\r\n\r\n'
         chunk_body = chunk_size_line + body + empty_chunk
 
@@ -493,9 +482,7 @@ class HTTPBasicsTest (BitcoinTestFramework):
         ).encode("ascii") + chunk_body
         conn.send_raw(raw)
         response = conn.recv_raw().decode()
-        assert "HTTP/1.1 200 OK" in response
-        count = self.node.getblockcount()
-        assert f'"result":{count}' in response
+        assert response.startswith("HTTP/1.1 400")
 
 
     def check_duplicate_content_length(self):

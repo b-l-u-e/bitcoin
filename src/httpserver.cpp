@@ -417,11 +417,33 @@ bool HTTPRequest::LoadHeaders(LineReader& reader)
     return m_headers.Read(reader);
 }
 
+//! Returns true if Transfer-Encoding is exactly "chunked"
+//! Multiple headers or any other value are rejected, so does not fall back
+//! to Content-Length for an encoding we don't support
+//! https://www.rfc-editor.org/rfc/rfc9112.html#section-6.1
+static bool IsChunkedTransferEncoding(const HTTPHeaders& headers)
+{
+    const auto te_values{headers.FindAll("Transfer-Encoding")};
+    if (te_values.empty()) return false;
+    if (te_values.size() > 1) throw std::runtime_error("Multiple Transfer-Encoding headers");
+
+    // Only a single "chunked" value is accepted
+    if (ToLower(te_values.front()) != "chunked") {
+        throw std::runtime_error("Unsupported Transfer-Encoding");
+    }
+    return true;
+}
+
 bool HTTPRequest::LoadBody(LineReader& reader)
 {
     // https://httpwg.org/specs/rfc9112.html#message.body
-    auto transfer_encoding_header = m_headers.FindFirst("Transfer-Encoding");
-    if (transfer_encoding_header && ToLower(transfer_encoding_header.value()) == "chunked") {
+    const bool chunked{IsChunkedTransferEncoding(m_headers)};
+    // Transfer-Encoding and Content-Length must not both be present
+    // https://www.rfc-editor.org/rfc/rfc9112.html#section-6.1
+    if (chunked && m_headers.FindFirst("Content-Length")) {
+        throw std::runtime_error("Transfer-Encoding with Content-Length");
+    }
+    if (chunked) {
         // Transfer-Encoding: https://datatracker.ietf.org/doc/html/rfc7230.html#section-3.3.1
         // Chunked Transfer Coding: https://datatracker.ietf.org/doc/html/rfc7230.html#section-4.1
         // see evhttp_handle_chunked_read() in libevent http.c

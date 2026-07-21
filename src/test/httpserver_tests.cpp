@@ -412,6 +412,47 @@ BOOST_AUTO_TEST_CASE(http_request_tests)
         BOOST_CHECK_EQUAL(req.m_body, R"({"method":"getblockcount"})");
     }
     {
+        // Unsupported Transfer-Encoding is rejected (does not fall back to Content-Length)
+        HTTPRequest req;
+        LineReader reader("GET / HTTP/1.0\r\n"
+                          "Transfer-Encoding: gzip, chunked\r\n"
+                          "Content-Length: 4\r\n"
+                          "\r\n"
+                          "abcd",
+                          MAX_HEADERS_SIZE);
+        BOOST_CHECK(req.LoadControlData(reader));
+        BOOST_CHECK(req.LoadHeaders(reader));
+        BOOST_CHECK_EXCEPTION(req.LoadBody(reader), std::runtime_error, HasReason{"Unsupported Transfer-Encoding"});
+    }
+    {
+        // Multiple Transfer-Encoding headers are not allowed
+        HTTPRequest req;
+        LineReader reader("GET / HTTP/1.0\r\n"
+                          "Transfer-Encoding: chunked\r\n"
+                          "Transfer-Encoding: identity\r\n"
+                          "\r\n"
+                          "0\r\n"
+                          "\r\n",
+                          MAX_HEADERS_SIZE);
+        BOOST_CHECK(req.LoadControlData(reader));
+        BOOST_CHECK(req.LoadHeaders(reader));
+        BOOST_CHECK_EXCEPTION(req.LoadBody(reader), std::runtime_error, HasReason{"Multiple Transfer-Encoding headers"});
+    }
+    {
+        // Transfer-Encoding and Content-Length both of them are not allowed to be present
+        HTTPRequest req;
+        LineReader reader("GET / HTTP/1.0\r\n"
+                          "Transfer-Encoding: chunked\r\n"
+                          "Content-Length: 4\r\n"
+                          "\r\n"
+                          "0\r\n"
+                          "\r\n",
+                          MAX_HEADERS_SIZE);
+        BOOST_CHECK(req.LoadControlData(reader));
+        BOOST_CHECK(req.LoadHeaders(reader));
+        BOOST_CHECK_EXCEPTION(req.LoadBody(reader), std::runtime_error, HasReason{"Transfer-Encoding with Content-Length"});
+    }
+    {
         // Prevent "chunked" transfer from exceeding size limit
         HTTPRequest req;
         std::string_view excessive_chunk_size = "GET / HTTP/1.0\n"
@@ -486,23 +527,17 @@ BOOST_AUTO_TEST_CASE(http_request_tests)
     {
         // End of buffer reached without chunk termination, caller must wait for more data to arrive
         HTTPRequest req;
-        std::string delayed_chunked = "GET / HTTP/1.0\n"
-                                      "Transfer-Encoding: chunked\n"
-                                      "\n"
-                                      "10\n"
-                                      R"({"method":"getbl)""\n"
-                                      "a\n"
-                                      R"(ockcount"})";
-        LineReader reader1(delayed_chunked, MAX_HEADERS_SIZE);
-        BOOST_CHECK(req.LoadControlData(reader1));
-        BOOST_CHECK(req.LoadHeaders(reader1));
-        BOOST_CHECK(!req.LoadBody(reader1));
-        // more data arrives!
-        delayed_chunked += "\n0\n\n";
-        LineReader reader2(delayed_chunked, MAX_HEADERS_SIZE);
-        BOOST_CHECK(req.LoadControlData(reader2));
-        BOOST_CHECK(req.LoadHeaders(reader2));
-        BOOST_CHECK(req.LoadBody(reader2));
+        std::string_view delayed_chunked = "GET / HTTP/1.0\n"
+                                           "Transfer-Encoding: chunked\n"
+                                           "\n"
+                                           "10\n"
+                                           R"({"method":"getbl)""\n"
+                                           "a\n"
+                                           R"(ockcount"})";
+        LineReader reader(delayed_chunked, MAX_HEADERS_SIZE);
+        BOOST_CHECK(req.LoadControlData(reader));
+        BOOST_CHECK(req.LoadHeaders(reader));
+        BOOST_CHECK(!req.LoadBody(reader));
     }
 }
 
